@@ -25,7 +25,12 @@ test('environment validation catches bad settings', () => {
   const devInProd = config.validate(config.load({ AUTH_MODE: 'dev', NODE_ENV: 'production' }));
   assert.ok(devInProd.some(e => /not allowed/.test(e)));
   const badB64 = config.validate(config.load({ AUTH_MODE: 'firebase', FIREBASE_SERVICE_ACCOUNT_B64: '@@@', FIREBASE_DATABASE_URL: 'https://x.firebaseio.com' }));
-  assert.ok(badB64.some(e => /base64/.test(e)));
+  assert.ok(badB64.some(e => /not valid/.test(e)));
+  const raw = JSON.stringify({ project_id: 'p', client_email: 'a@b', private_key: 'k' });
+  const base = { AUTH_MODE: 'firebase', FIREBASE_DATABASE_URL: 'https://x.firebaseio.com' };
+  assert.deepEqual(config.validate(config.load({ ...base, FIREBASE_SERVICE_ACCOUNT_B64: raw })), [], 'plain JSON accepted');
+  assert.deepEqual(config.validate(config.load({ ...base, FIREBASE_SERVICE_ACCOUNT_B64: Buffer.from(raw).toString('base64') })), [], 'base64 accepted');
+  assert.deepEqual(config.validate(config.load({ ...base, FIREBASE_SERVICE_ACCOUNT_B64: Buffer.from(raw).toString('base64').slice(0, 40) })).length, 1, 'truncated value rejected');
   const good = config.validate(config.load({ AUTH_MODE: 'firebase', FIREBASE_PROJECT_ID: 'p', FIREBASE_CLIENT_EMAIL: 'a@b', FIREBASE_PRIVATE_KEY: 'k', FIREBASE_DATABASE_URL: 'https://x.firebaseio.com' }));
   assert.deepEqual(good, []);
 });
