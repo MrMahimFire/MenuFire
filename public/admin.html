@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Menu Fire Admin</title>
+<style>
+:root{--bg:#0e1118;--card:#171c28;--ink:#e8ecf4;--mut:#8b95ab;--acc:#ff8a1f;--bad:#ff5a5a;--ok:#4cd68a}
+@media(prefers-color-scheme:light){:root{--bg:#f4f5f8;--card:#fff;--ink:#161a24;--mut:#5d667a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px system-ui,sans-serif;padding:16px}
+h1{font-size:20px;margin:0 0 12px}h1 b{color:var(--acc)}
+.card{background:var(--card);border-radius:12px;padding:14px;margin-bottom:12px;overflow-x:auto}
+input,button,textarea{font:inherit;padding:8px 10px;border-radius:8px;border:1px solid #3a4258;background:transparent;color:var(--ink)}
+button{background:var(--acc);color:#111;border:0;font-weight:600;cursor:pointer}button.alt{background:transparent;color:var(--ink);border:1px solid #3a4258}
+table{border-collapse:collapse;width:100%}td,th{padding:6px 8px;text-align:left;border-bottom:1px solid #2a3144;white-space:nowrap}th{color:var(--mut);font-weight:500}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}.mut{color:var(--mut)}.err{color:var(--bad)}.ok{color:var(--ok)}
+pre{margin:0;white-space:pre-wrap;font-size:12px;max-height:260px;overflow:auto}
+</style></head><body>
+<h1>MENU<b>FIRE</b> admin</h1>
+<div class="card" id="login">
+  <div class="row"><input id="em" type="email" placeholder="admin email" autocomplete="username"><input id="pw" type="password" placeholder="password" autocomplete="current-password"><button id="go">Sign in</button></div>
+  <div id="lmsg" class="mut">Sign in with a Firebase account that has the admin role.</div>
+</div>
+<div id="app" hidden>
+  <div class="card"><b>Server</b><div id="ov" class="mut">…</div>
+    <div class="row"><button class="alt" id="maint">Toggle maintenance</button><input id="motd" placeholder="message of the day" maxlength="120"><button class="alt" id="setmotd">Save</button></div></div>
+  <div class="card"><b>Online players</b><table id="pl"></table></div>
+  <div class="card"><b>Rooms</b><table id="rm"></table></div>
+  <div class="card"><b>Player lookup / ban</b>
+    <div class="row"><input id="uid" placeholder="player uid"><input id="why" placeholder="reason (optional)"><button class="alt" id="look">Look up</button><button id="ban">Ban</button><button class="alt" id="unban">Unban</button></div>
+    <pre id="pinfo" class="mut"></pre></div>
+  <div class="card"><b>Logs</b> <select id="lv"><option value="">all</option><option>warn</option><option>error</option></select><pre id="lg"></pre></div>
+</div>
+<script>
+let tok='',key='',cfgCache={};
+const $=id=>document.getElementById(id);
+async function api(path,opt={}){const r=await fetch('/api/admin'+path,{...opt,headers:{'Authorization':'Bearer '+tok,'Content-Type':'application/json'}});
+  if(r.status===401){await signin(true);return api(path,opt)}const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j}
+async function signin(silent){
+  const r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+key,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('em').value,password:$('pw').value,returnSecureToken:true})});
+  const j=await r.json();if(!r.ok){$('lmsg').className='err';$('lmsg').textContent='Sign-in failed: '+(j.error&&j.error.message||r.status);throw new Error('login')}tok=j.idToken}
+$('go').onclick=async()=>{try{await signin();await api('/overview');$('login').hidden=true;$('app').hidden=false;refresh();setInterval(refresh,5000)}catch(e){if(e.message!=='login'){$('lmsg').className='err';$('lmsg').textContent=e.message==='admin role required'?'This account is not an admin.':e.message}}};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function refresh(){try{
+  const o=await api('/overview');cfgCache=o.config;
+  $('ov').textContent=`online ${o.online} · matches ${o.matches} · uptime ${o.uptimeSec}s · mem ${o.rssMB}MB · errors ${o.errorsLogged} · db ${o.db} · auth ${o.authMode} · maintenance ${o.config.maintenance?'ON':'off'}`;
+  const p=await api('/players/online');
+  $('pl').innerHTML='<tr><th>name</th><th>uid</th><th>where</th><th></th></tr>'+p.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.uid)}</td><td>${esc(x.mode)}</td><td><button class="alt" onclick="kick('${esc(x.uid)}')">kick</button></td></tr>`).join('');
+  const r=await api('/rooms');
+  $('rm').innerHTML='<tr><th>room</th><th>mode</th><th>players</th><th>state</th></tr>'+r.lobbies.map(l=>`<tr><td>queue</td><td>${l.mode}</td><td>${l.players}</td><td>waiting</td></tr>`).join('')+r.matches.map(m=>`<tr><td>#${m.id}</td><td>${m.mode}</td><td>${m.alive}/${m.players}</td><td>${m.phase} ${m.seconds}s</td></tr>`).join('');
+  $('lg').textContent=(await api('/logs?n=60&level='+$('lv').value)).map(l=>l.t.slice(11,19)+' '+l.level+' '+l.msg).join('\n');
+}catch(e){$('ov').textContent='error: '+e.message}}
+window.kick=async u=>{await api('/players/'+u+'/kick',{method:'POST',body:'{}'});refresh()};
+$('maint').onclick=async()=>{await api('/config',{method:'PUT',body:JSON.stringify({maintenance:!cfgCache.maintenance})});refresh()};
+$('setmotd').onclick=async()=>{await api('/config',{method:'PUT',body:JSON.stringify({motd:$('motd').value})});refresh()};
+$('look').onclick=async()=>{try{$('pinfo').textContent=JSON.stringify(await api('/players/'+$('uid').value.trim()),null,1)}catch(e){$('pinfo').textContent=e.message}};
+$('ban').onclick=async()=>{try{await api('/players/'+$('uid').value.trim()+'/ban',{method:'POST',body:JSON.stringify({reason:$('why').value})});$('look').click()}catch(e){$('pinfo').textContent=e.message}};
+$('unban').onclick=async()=>{try{await api('/players/'+$('uid').value.trim()+'/unban',{method:'POST',body:'{}'});$('look').click()}catch(e){$('pinfo').textContent=e.message}};
+fetch('/api/public-config').then(r=>r.json()).then(c=>{key=c.firebaseWebApiKey;if(!key)$('lmsg').textContent='Server has no FIREBASE_WEB_API_KEY set.'});
+</script></body></html>
