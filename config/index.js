@@ -33,6 +33,13 @@ function load(env = process.env) {
   return cfg;
 }
 
+/** Accepts the service-account JSON either as plain JSON text or base64 of it. */
+function parseServiceAccount(v) {
+  const t = String(v).trim();
+  if (t.startsWith('{')) return JSON.parse(t);
+  return JSON.parse(Buffer.from(t, 'base64').toString('utf8'));
+}
+
 function hasCredentials(f) {
   return !!(f.serviceAccountB64 || (f.projectId && f.clientEmail && f.privateKey));
 }
@@ -45,12 +52,12 @@ function validate(cfg) {
     if (!hasCredentials(cfg.firebase)) errs.push('Firebase credentials missing: set FIREBASE_SERVICE_ACCOUNT_B64 (or FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY)');
     if (!/^https:\/\/.+/.test(cfg.firebase.databaseURL)) errs.push('FIREBASE_DATABASE_URL must be the https:// URL of the Realtime Database');
     if (cfg.firebase.serviceAccountB64) {
-      try { const j = JSON.parse(Buffer.from(cfg.firebase.serviceAccountB64, 'base64').toString('utf8')); if (!j.private_key || !j.client_email) errs.push('FIREBASE_SERVICE_ACCOUNT_B64 is not a service-account JSON'); }
-      catch (e) { errs.push('FIREBASE_SERVICE_ACCOUNT_B64 is not valid base64 JSON'); }
+      try { const j = parseServiceAccount(cfg.firebase.serviceAccountB64); if (!j.private_key || !j.client_email) errs.push('FIREBASE_SERVICE_ACCOUNT_B64 is not a service-account JSON'); }
+      catch (e) { errs.push('FIREBASE_SERVICE_ACCOUNT_B64 is not valid: paste the whole JSON file text, or its base64'); }
     }
   }
   if (!(cfg.port > 0 && cfg.port < 65536)) errs.push('PORT is not valid');
   return errs;
 }
 
-module.exports = { load, validate, hasCredentials };
+module.exports = { load, validate, hasCredentials, parseServiceAccount };
