@@ -1,0 +1,7 @@
+[
+  {"id":0,"name":"PISTOL","dmg":18,"pellets":1,"rate":4,"range":60,"mag":12,"reload":1.2,"spread":0.012},
+  {"id":1,"name":"SMG","dmg":11,"pellets":1,"rate":12,"range":45,"mag":30,"reload":1.6,"spread":0.035},
+  {"id":2,"name":"RIFLE","dmg":22,"pellets":1,"rate":7,"range":90,"mag":30,"reload":2.0,"spread":0.02},
+  {"id":3,"name":"SHOTGUN","dmg":9,"pellets":8,"rate":1.2,"range":22,"mag":6,"reload":2.2,"spread":0.08},
+  {"id":4,"name":"SNIPER","dmg":75,"pellets":1,"rate":0.8,"range":200,"mag":5,"reload":2.6,"spread":0.002}
+]
