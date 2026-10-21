@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: menufire-server
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_MODE
+        value: firebase
+      - key: FIREBASE_DATABASE_URL
+        value: https://menufire-bd-default-rtdb.firebaseio.com
+      - key: FIREBASE_SERVICE_ACCOUNT_B64
+        sync: false          # paste in the Render dashboard, never in git
+      - key: FIREBASE_WEB_API_KEY
+        sync: false
+      - key: ADMIN_UIDS
+        sync: false

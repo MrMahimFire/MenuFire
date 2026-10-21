@@ -1,0 +1,16 @@
+{
+  "name": "menufire-multiplayer-server",
+  "version": "1.0.0",
+  "description": "Menu Fire multiplayer backend: game WebSocket + HTTP admin API + Firebase Admin",
+  "main": "server.js",
+  "private": true,
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "AUTH_MODE=dev node server.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0"
+  }
+}
