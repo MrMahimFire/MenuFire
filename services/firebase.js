@@ -1,9 +1,9 @@
 'use strict';
 // Firebase Admin SDK setup. The private key only ever lives in environment variables on the server.
-const { hasCredentials } = require('../config');
+const { hasCredentials, parseServiceAccount } = require('../config');
 
 function credentialFrom(f) {
-  if (f.serviceAccountB64) return JSON.parse(Buffer.from(f.serviceAccountB64, 'base64').toString('utf8'));
+  if (f.serviceAccountB64) return parseServiceAccount(f.serviceAccountB64);
   return { project_id: f.projectId, client_email: f.clientEmail, private_key: f.privateKey };
 }
 
