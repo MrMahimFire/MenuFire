@@ -3,6 +3,7 @@
 // Text protocol over WebSocket (see README). Created with createGame({cfg, store, verify, log}).
 const { frame, parseFrames, handshake } = require('./ws');
 const voice = require('./voice');
+const botsLib = require('./bots');
 
 function createGame({ cfg: C, store, verify, log }) {
   const WEAPONS = C.weapons;
@@ -36,6 +37,7 @@ function createGame({ cfg: C, store, verify, log }) {
   }
 
   let nextId = 1, nextMatch = 1;
+  let bots = null;
   const clients = new Map();    // id -> client
   const lobbies = new Map();    // key -> { mode, squad, list: [client], startAt }
   const matches = new Map();
@@ -43,8 +45,11 @@ function createGame({ cfg: C, store, verify, log }) {
   const ipCount = new Map();
   const timers = new Set();
 
-  function send(c, s) { if (c.sock && !c.sock.destroyed) c.sock.write(frame(s)); }
+  function send(c, s) {
+    if (c.bot) return; if (c.sock && !c.sock.destroyed) c.sock.write(frame(s)); }
   function sendRaw(c, s) { send(c, s); }
+
+  bots = botsLib.create({ T, ISL, PLANE_DUR, ZONE_START, zoneAt: (m, t) => zoneAt(m, t), damage: (...a) => damage(...a), bcast: (...a) => bcast(...a), f1: v => (Math.round(v * 10) / 10) });
 
   // ---------------------------------------------------------------- connections
   function attach(server) {
@@ -185,8 +190,21 @@ function createGame({ cfg: C, store, verify, log }) {
     }
 
   function lobbyTick(l) {
-    const cfg = CFG[l.mode], n = l.list.length;
-    if (n === 0) { l.startAt = 0; return; }
+    const cfg = CFG[l.mode];
+    const humans = l.list.filter(c => !c.bot);
+    if (humans.length === 0) { l.list = []; l.startAt = 0; l.botAt = 0; return; }
+    // nobody else came: after 30 - 72 seconds the lobby is filled with bots
+    if (!l.botFilled && humans.length < cfg.min) {
+      if (!l.botAt) l.botAt = Date.now() + (30 + Math.random() * 42) * 1000 * T;
+      if (Date.now() >= l.botAt && C.bots) {
+        const used = new Set(l.list.map(c => String(c.name).toLowerCase()));
+        const target = l.mode === 'BR' ? Math.min(cfg.max, 14 + Math.floor(Math.random() * 14) + humans.length) : cfg.max;
+        l.list.push(...bots.makeBots(Math.max(0, target - l.list.length), used));
+        l.botFilled = true;
+        l.startAt = Date.now() + 4000 * T;
+      }
+    } else if (humans.length >= cfg.min && !l.botFilled) l.botAt = 0;
+    const n = l.list.length;
     if (n >= cfg.max) l.startAt = Date.now();
     else if (n >= cfg.min) { if (!l.startAt) l.startAt = Date.now() + cfg.countdown * 1000; }
     else l.startAt = 0;
@@ -195,7 +213,7 @@ function createGame({ cfg: C, store, verify, log }) {
     if (l.startAt && Date.now() >= l.startAt) {
       const players = l.list.splice(0, cfg.max);
       for (const c of players) c.lobby = null;
-      l.startAt = 0;
+      l.startAt = 0; l.botAt = 0; l.botFilled = false;
       startMatch(l.mode, l.squad, players);
       if (l.list.length) lobbyTick(l);
     }
@@ -212,7 +230,7 @@ function createGame({ cfg: C, store, verify, log }) {
     matches.set(m.id, m);
     players.forEach((p, i) => {
       p.match = m; p.hp = 100; p.alive = true; p.kills = 0; p.air = false; p.w = 0; p.x = 0; p.y = 0; p.z = 0; p.yaw = 0; p.pitch = 0;
-      p.last = {}; p.dropped = false; p.ready = false; p.rewarded = false; p.posAt = 0; p.strikes = 0; p.gone = false;
+      p.last = {}; p.dropped = false; p.ready = !!p.bot; p.rewarded = false; p.posAt = 0; p.strikes = 0; p.gone = false;
       if (mode === 'BR') p.team = squad ? Math.floor(i / cfg.teamSize / (squad ? 4 : 1)) : i;
       else p.team = i % 2;
       if (mode === 'BR' && squad) p.team = Math.floor(i / 4);
@@ -297,6 +315,7 @@ function createGame({ cfg: C, store, verify, log }) {
     }
     const now = Date.now(), sec = (now - m.phaseT) / 1000;
     m.ticks = (m.ticks || 0) + 1;
+    if (bots.tick(m, now) === 'no-humans') return endMatch(m);
     if (m.ticks % 2 === 0) { // 10 Hz snapshot
       const parts = m.players.map(p => `${p.id},${f1(p.x)},${f1(p.y)},${f1(p.z)},${f1(p.yaw)},${f1(p.pitch)},${p.w},${Math.round(p.hp)},${p.air ? 1 : 0},${p.alive ? 1 : 0}`);
       bcast(m, 'snap ' + parts.join(';'));
@@ -340,7 +359,7 @@ function createGame({ cfg: C, store, verify, log }) {
     for (const p of m.players) award(p, winnerTeam !== undefined && p.team === winnerTeam, winnerTeam !== undefined && p.team === winnerTeam ? 1 : (p.place || 0));
     bcast(m, `end ${winnerTeam === undefined ? -1 : winnerTeam}`);
     store.saveMatch({ id: m.id, t: Date.now(), mode: m.mode, seconds: Math.round((Date.now() - m.t0) / 1000), winnerTeam: winnerTeam === undefined ? -1 : winnerTeam,
-      players: m.players.map(p => ({ uid: p.uid, name: p.name, team: p.team, kills: p.kills || 0, place: p.place || 0 })) });
+      players: m.players.filter(p => !p.bot).map(p => ({ uid: p.uid, name: p.name, team: p.team, kills: p.kills || 0, place: p.place || 0 })) });
     clearInterval(m.timer);
     const t = setTimeout(() => { for (const p of m.players) p.match = null; matches.delete(m.id); timers.delete(t); }, 500); timers.add(t);
   }
@@ -350,7 +369,7 @@ function createGame({ cfg: C, store, verify, log }) {
     if (!m) return;
     m.players = m.players.filter(p => p !== c);
     if (c.alive) { c.alive = false; bcast(m, `kill ${c.id} -1 0 0`); }
-    if (m.players.length === 0) { m.over = true; clearInterval(m.timer); matches.delete(m.id); return; }
+    if (m.players.length === 0 || !m.players.some(p => !p.bot)) { m.over = true; clearInterval(m.timer); matches.delete(m.id); return; }
     if (m.mode === 'BR' && m.phase !== 'plane' && aliveTeams(m).size <= 1) endMatch(m, [...aliveTeams(m)][0]);
     else if (m.mode !== 'BR' && new Set(m.players.map(p => p.team)).size < 2) endMatch(m, m.players[0].team);
   }
@@ -404,7 +423,7 @@ function createGame({ cfg: C, store, verify, log }) {
         if (v.team === c.team) return;                                  // no friendly fire
         if (c.air || v.air) return;                                     // nobody is hurt while parachuting
         const pel = Math.max(1, Math.min(w.pellets, +a[5] | 0 || 1));
-        const dist = Math.hypot(c.x - v.x, c.y - v.y, c.z - v.z);
+        const dist = v.bot ? Math.hypot(c.x - v.x, c.z - v.z) : Math.hypot(c.x - v.x, c.y - v.y, c.z - v.z);
         if (dist > w.range + 8) return;                                 // too far for this weapon (server-known positions)
         const now = Date.now(), last = c.last[w.id] || 0;
         if (now - last < 1000 / w.rate * 0.6) return;                   // fire-rate limit
