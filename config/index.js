@@ -25,6 +25,7 @@ function load(env = process.env) {
     antiCheat: env.ANTICHEAT !== '0',             // speed-hack check; switched off only for scripted client tests
     fast: env.FAST === '1',                       // short timers, for tests only
     minBR: +env.MIN_BR || 2,
+    bots: env.BOTS !== '0',                        // fill empty lobbies with light-damage bots after 30-72 s
     minCS: +env.MIN_CS || 2,
     maxConnPerIp: +env.MAX_CONN_PER_IP || 12,
     dataDir: env.DATA_DIR || path.join(__dirname, '..', 'data'),
